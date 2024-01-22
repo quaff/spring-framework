@@ -32,9 +32,8 @@ import org.springframework.orm.jpa.domain2.entity.User;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 /**
  * Tests for {@link PersistenceManagedTypesScanner}.
@@ -62,11 +61,11 @@ class PersistenceManagedTypesScannerTests {
 		given(filter.matches(anyString())).willReturn(true);
 		new PersistenceManagedTypesScanner(RESOURCE_LOADER, filter)
 				.scan("org.springframework.orm.jpa.domain");
-		verify(filter).matches(Person.class.getName());
-		verify(filter).matches(DriversLicense.class.getName());
-		verify(filter).matches(Employee.class.getName());
-		verify(filter).matches(EmployeeLocationConverter.class.getName());
-		verifyNoMoreInteractions(filter);
+		then(filter).should().matches(Person.class.getName());
+		then(filter).should().matches(DriversLicense.class.getName());
+		then(filter).should().matches(Employee.class.getName());
+		then(filter).should().matches(EmployeeLocationConverter.class.getName());
+		then(filter).shouldHaveNoMoreInteractions();
 	}
 
 	@Test
