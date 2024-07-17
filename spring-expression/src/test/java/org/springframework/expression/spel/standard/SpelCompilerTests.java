@@ -20,6 +20,8 @@ import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.Test;
 
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.core.Ordered;
 import org.springframework.expression.Expression;
 import org.springframework.expression.spel.SpelCompilerMode;
@@ -35,6 +37,7 @@ import static org.springframework.expression.spel.standard.SpelExpressionTestUti
  *
  * @author Sam Brannen
  * @author Andy Clement
+ * @author Yanming Zhou
  * @since 5.1.14
  * @see org.springframework.expression.spel.SpelCompilationCoverageTests
  */
@@ -77,9 +80,10 @@ class SpelCompilerTests {
 		assertThat(expression.getValue(context)).asInstanceOf(BOOLEAN).isTrue();
 	}
 
-	@Test  // gh-28043
-	void changingRegisteredVariableTypeDoesNotResultInFailureInMixedMode() {
-		SpelParserConfiguration config = new SpelParserConfiguration(SpelCompilerMode.MIXED, null);
+	@ParameterizedTest // gh-28043
+	@EnumSource(SpelCompilerMode.class)
+	void changingRegisteredVariableTypeDoesNotResultInFailure(SpelCompilerMode mode) {
+		SpelParserConfiguration config = new SpelParserConfiguration(mode, null);
 		SpelExpressionParser parser = new SpelExpressionParser(config);
 		Expression sharedExpression = parser.parseExpression("#bean.value");
 		StandardEvaluationContext context = new StandardEvaluationContext();
