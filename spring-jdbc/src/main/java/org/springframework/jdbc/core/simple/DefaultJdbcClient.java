@@ -16,10 +16,12 @@
 
 package org.springframework.jdbc.core.simple;
 
+import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
@@ -30,8 +32,11 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.beans.BeanUtils;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.core.convert.support.DefaultConversionService;
+import org.springframework.jdbc.core.ArgumentPreparedStatementSetter;
+import org.springframework.jdbc.core.ColumnMapRowMapper;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementCallback;
 import org.springframework.jdbc.core.PreparedStatementCreator;
 import org.springframework.jdbc.core.PreparedStatementCreatorFactory;
 import org.springframework.jdbc.core.ResultSetExtractor;
@@ -55,6 +60,7 @@ import org.springframework.util.Assert;
  *
  * @author Juergen Hoeller
  * @author Sam Brannen
+ * @author Yanming Zhou
  * @since 6.1
  * @see JdbcClient#create(DataSource)
  * @see JdbcClient#create(JdbcOperations)
@@ -303,6 +309,18 @@ final class DefaultJdbcClient implements JdbcClient {
 			}
 
 			@Override
+			public Optional<Map<String, Object>> firstRow() {
+				Map<String, Object> result = classicOps.execute(sql, (PreparedStatementCallback<Map<String, Object>>) ps -> {
+					ps.setMaxRows(1);
+					new ArgumentPreparedStatementSetter(indexedParams.toArray()).setValues(ps);
+					try (ResultSet rs = ps.executeQuery()) {
+						return rs.next() ? new ColumnMapRowMapper().mapRow(rs, 0) : null;
+					}
+				});
+				return Optional.ofNullable(result);
+			}
+
+			@Override
 			public List<Object> singleColumn() {
 				return classicOps.queryForList(sql, Object.class, indexedParams.toArray());
 			}
@@ -324,6 +342,17 @@ final class DefaultJdbcClient implements JdbcClient {
 			@Override
 			public Map<String, Object> singleRow() {
 				return namedParamOps.queryForMap(sql, namedParamSource);
+			}
+
+			@Override
+			public Optional<Map<String, Object>> firstRow() {
+				Map<String, Object> result = namedParamOps.execute(sql, namedParamSource, ps -> {
+					ps.setMaxRows(1);
+					try (ResultSet rs = ps.executeQuery()) {
+						return rs.next() ? new ColumnMapRowMapper().mapRow(rs, 0) : null;
+					}
+				});
+				return Optional.ofNullable(result);
 			}
 
 			@Override
@@ -350,6 +379,18 @@ final class DefaultJdbcClient implements JdbcClient {
 			public List<T> list() {
 				return classicOps.query(sql, this.rowMapper, indexedParams.toArray());
 			}
+
+			@Override
+			public Optional<T> first() {
+				T result = classicOps.execute(sql, (PreparedStatementCallback<T>) ps -> {
+					ps.setMaxRows(1);
+					new ArgumentPreparedStatementSetter(indexedParams.toArray()).setValues(ps);
+					try (ResultSet rs = ps.executeQuery()) {
+						return rs.next() ? this.rowMapper.mapRow(rs, 0) : null;
+					}
+				});
+				return Optional.ofNullable(result);
+			}
 		}
 
 
@@ -369,6 +410,17 @@ final class DefaultJdbcClient implements JdbcClient {
 			@Override
 			public List<T> list() {
 				return namedParamOps.query(sql, namedParamSource, this.rowMapper);
+			}
+
+			@Override
+			public Optional<T> first() {
+				T result = namedParamOps.execute(sql, namedParamSource, ps -> {
+					ps.setMaxRows(1);
+					try (ResultSet rs = ps.executeQuery()) {
+						return rs.next() ? this.rowMapper.mapRow(rs, 0) : null;
+					}
+				});
+				return Optional.ofNullable(result);
 			}
 		}
 	}

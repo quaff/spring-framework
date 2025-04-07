@@ -30,6 +30,7 @@ import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.convert.ConversionService;
 import org.springframework.dao.support.DataAccessUtils;
+import org.springframework.jdbc.IncorrectResultSetColumnCountException;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowCallbackHandler;
@@ -60,6 +61,7 @@ import org.springframework.jdbc.support.rowset.SqlRowSet;
  *
  * @author Juergen Hoeller
  * @author Sam Brannen
+ * @author Yanming Zhou
  * @since 6.1
  * @see ResultSetExtractor
  * @see RowCallbackHandler
@@ -351,6 +353,17 @@ public interface JdbcClient {
 		Map<String, Object> singleRow();
 
 		/**
+		 * Retrieve the result as first row, if available, as an {@link Optional} handle.
+		 * @return the result row represented as a map of
+		 * case-insensitive column names to column values
+		 * @since 7.0
+		 */
+		default Optional<Map<String, Object>> firstRow() {
+			List<Map<String, Object>> list = listOfRows();
+			return Optional.ofNullable(!list.isEmpty() ? list.get(0) : null);
+		}
+
+		/**
 		 * Retrieve a single column result,
 		 * retaining the order from the original database result.
 		 * @return a (potentially empty) list of rows, with each
@@ -368,6 +381,22 @@ public interface JdbcClient {
 		 */
 		default Object singleValue() {
 			return DataAccessUtils.requiredSingleResult(singleColumn());
+		}
+
+		/**
+		 * Retrieve the result as first row, if available, as an {@link Optional} handle.
+		 * @return an Optional handle with the single column value from the result set
+		 * @since 7.0
+		 * @see #singleColumn()
+		 */
+		default Optional<Object> firstValue() {
+			return firstRow().flatMap(map -> {
+				int nrOfColumns = map.size();
+				if (nrOfColumns != 1) {
+					throw new IncorrectResultSetColumnCountException(1, nrOfColumns);
+				}
+				return map.values().stream().findFirst();
+			});
 		}
 
 		/**
@@ -435,6 +464,19 @@ public interface JdbcClient {
 		 */
 		default Optional<T> optional() {
 			return DataAccessUtils.optionalResult(list());
+		}
+
+		/**
+		 * Retrieve first result, if available, as an {@link Optional} handle.
+		 * @return an Optional handle with a first result object or none
+		 * @since 7.0
+		 * @see #single()
+		 * @see #optional()
+		 */
+		default Optional<T> first() {
+			try (Stream<T> stream = stream()) {
+				return stream.findFirst();
+			}
 		}
 	}
 
