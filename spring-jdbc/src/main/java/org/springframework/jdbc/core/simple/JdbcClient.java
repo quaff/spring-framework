@@ -30,6 +30,7 @@ import org.jspecify.annotations.Nullable;
 
 import org.springframework.core.convert.ConversionService;
 import org.springframework.dao.support.DataAccessUtils;
+import org.springframework.jdbc.IncorrectResultSetColumnCountException;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowCallbackHandler;
@@ -60,6 +61,7 @@ import org.springframework.jdbc.support.rowset.SqlRowSet;
  *
  * @author Juergen Hoeller
  * @author Sam Brannen
+ * @author Yanming Zhou
  * @since 6.1
  * @see ResultSetExtractor
  * @see RowCallbackHandler
@@ -341,7 +343,21 @@ public interface JdbcClient {
 		 * with each result row represented as a map of
 		 * case-insensitive column names to column values
 		 */
-		List<Map<String, Object>> listOfRows();
+		default List<Map<String, Object>> listOfRows() {
+			return listOfRows(-1);
+		}
+
+		/**
+		 * Retrieve the result as a list of rows,
+		 * retaining the order from the original database result.
+		 * @param maxRows maximum number of rows
+		 * @return a (potentially empty) list of rows,
+		 * with each result row represented as a map of
+		 * case-insensitive column names to column values
+		 * @since 7.0
+		 * @see java.sql.Statement#setMaxRows(int)
+		 */
+		List<Map<String, Object>> listOfRows(int maxRows);
 
 		/**
 		 * Retrieve a single row result.
@@ -349,6 +365,16 @@ public interface JdbcClient {
 		 * case-insensitive column names to column values
 		 */
 		Map<String, Object> singleRow();
+
+		/**
+		 * Retrieve the result as first row, if available, as an {@link Optional} handle.
+		 * @return the result row represented as a map of
+		 * case-insensitive column names to column values
+		 * @since 7.0
+		 */
+		default Optional<Map<String, Object>> firstRow() {
+			return listOfRows(1).stream().findFirst();
+		}
 
 		/**
 		 * Retrieve a single column result,
@@ -368,6 +394,22 @@ public interface JdbcClient {
 		 */
 		default Object singleValue() {
 			return DataAccessUtils.requiredSingleResult(singleColumn());
+		}
+
+		/**
+		 * Retrieve the result as first row, if available, as an {@link Optional} handle.
+		 * @return an Optional handle with the single column value from the result set
+		 * @since 7.0
+		 * @see #singleColumn()
+		 */
+		default Optional<Object> firstValue() {
+			return firstRow().flatMap(map -> {
+				int nrOfColumns = map.size();
+				if (nrOfColumns != 1) {
+					throw new IncorrectResultSetColumnCountException(1, nrOfColumns);
+				}
+				return map.values().stream().findFirst();
+			});
 		}
 
 		/**
@@ -403,7 +445,19 @@ public interface JdbcClient {
 		 * retaining the order from the original database result.
 		 * @return the result as a detached List, containing mapped objects
 		 */
-		List<T> list();
+		default List<T> list() {
+			return list(-1);
+		}
+
+		/**
+		 * Retrieve the result as a pre-resolved list of mapped objects,
+		 * retaining the order from the original database result.
+		 * @param maxRows maximum number of rows
+		 * @return the result as a detached List, containing mapped objects
+		 * @since 7.0
+		 * @see java.sql.Statement#setMaxRows(int)
+		 */
+		List<T> list(int maxRows);
 
 		/**
 		 * Retrieve the result as an order-preserving set of mapped objects.
@@ -435,6 +489,17 @@ public interface JdbcClient {
 		 */
 		default Optional<T> optional() {
 			return DataAccessUtils.optionalResult(list());
+		}
+
+		/**
+		 * Retrieve first result, if available, as an {@link Optional} handle.
+		 * @return an Optional handle with a first result object or none
+		 * @since 7.0
+		 * @see #single()
+		 * @see #optional()
+		 */
+		default Optional<T> first() {
+			return list(1).stream().findFirst();
 		}
 	}
 

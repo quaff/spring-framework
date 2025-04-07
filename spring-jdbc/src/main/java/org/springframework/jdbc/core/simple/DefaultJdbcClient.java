@@ -16,10 +16,12 @@
 
 package org.springframework.jdbc.core.simple;
 
+import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
@@ -30,8 +32,11 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.beans.BeanUtils;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.core.convert.support.DefaultConversionService;
+import org.springframework.jdbc.core.ArgumentPreparedStatementSetter;
+import org.springframework.jdbc.core.ColumnMapRowMapper;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementCallback;
 import org.springframework.jdbc.core.PreparedStatementCreator;
 import org.springframework.jdbc.core.PreparedStatementCreatorFactory;
 import org.springframework.jdbc.core.ResultSetExtractor;
@@ -55,6 +60,7 @@ import org.springframework.util.Assert;
  *
  * @author Juergen Hoeller
  * @author Sam Brannen
+ * @author Yanming Zhou
  * @since 6.1
  * @see JdbcClient#create(DataSource)
  * @see JdbcClient#create(JdbcOperations)
@@ -293,8 +299,9 @@ final class DefaultJdbcClient implements JdbcClient {
 			}
 
 			@Override
-			public List<Map<String, Object>> listOfRows() {
-				return classicOps.queryForList(sql, indexedParams.toArray());
+			public List<Map<String, Object>> listOfRows(int maxRows) {
+				List<Map<String, Object>> result = classicOps.execute(sql, createPreparedStatementCallback(maxRows, new ColumnMapRowMapper(), indexedParams));
+				return Objects.requireNonNull(result);
 			}
 
 			@Override
@@ -317,8 +324,9 @@ final class DefaultJdbcClient implements JdbcClient {
 			}
 
 			@Override
-			public List<Map<String, Object>> listOfRows() {
-				return namedParamOps.queryForList(sql, namedParamSource);
+			public List<Map<String, Object>> listOfRows(int maxRows) {
+				List<Map<String, Object>> result = namedParamOps.execute(sql, namedParamSource, createPreparedStatementCallback(maxRows, new ColumnMapRowMapper()));
+				return Objects.requireNonNull(result);
 			}
 
 			@Override
@@ -347,8 +355,9 @@ final class DefaultJdbcClient implements JdbcClient {
 			}
 
 			@Override
-			public List<T> list() {
-				return classicOps.query(sql, this.rowMapper, indexedParams.toArray());
+			public List<T> list(int maxRows) {
+				List<T> result = classicOps.execute(sql, createPreparedStatementCallback(maxRows, this.rowMapper, indexedParams));
+				return Objects.requireNonNull(result);
 			}
 		}
 
@@ -367,10 +376,34 @@ final class DefaultJdbcClient implements JdbcClient {
 			}
 
 			@Override
-			public List<T> list() {
-				return namedParamOps.query(sql, namedParamSource, this.rowMapper);
+			public List<T> list(int maxRows) {
+				List<T> result = namedParamOps.execute(sql, namedParamSource, createPreparedStatementCallback(maxRows, this.rowMapper));
+				return Objects.requireNonNull(result);
 			}
 		}
+	}
+
+	private <T> PreparedStatementCallback<List<T>> createPreparedStatementCallback(int maxRows, RowMapper<T> rowMapper) {
+		return createPreparedStatementCallback(maxRows, rowMapper, null);
+	}
+
+	private <T> PreparedStatementCallback<List<T>> createPreparedStatementCallback(int maxRows, RowMapper<T> rowMapper, @Nullable List<Object> indexedParams) {
+		return ps -> {
+			if (maxRows > 0) {
+				ps.setMaxRows(maxRows);
+			}
+			if (indexedParams != null) {
+				new ArgumentPreparedStatementSetter(indexedParams.toArray()).setValues(ps);
+			}
+			List<T> list = (maxRows > 0 && maxRows < 10 ? new ArrayList<>(maxRows) : new ArrayList<>());
+			int rowNum = 0;
+			try (ResultSet rs = ps.executeQuery()) {
+				while (rs.next() && (maxRows <= 0 || (rowNum++) < maxRows)) {
+					list.add(rowMapper.mapRow(rs, 0));
+				}
+			}
+			return list;
+		};
 	}
 
 }

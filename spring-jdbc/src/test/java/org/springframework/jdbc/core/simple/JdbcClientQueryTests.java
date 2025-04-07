@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2024 the original author or authors.
+ * Copyright 2002-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,10 +37,12 @@ import org.junit.jupiter.api.Test;
 
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.core.convert.support.GenericConversionService;
+import org.springframework.jdbc.IncorrectResultSetColumnCountException;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.util.NumberUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
@@ -49,6 +51,7 @@ import static org.mockito.Mockito.verify;
 
 /**
  * @author Juergen Hoeller
+ * @author Yanming Zhou
  * @since 6.1
  */
 class JdbcClientQueryTests {
@@ -291,6 +294,103 @@ class JdbcClientQueryTests {
 				client.sql("SELECT AGE FROM CUSTMR WHERE ID IN (?)").param(Arrays.asList(3, 4)).query().singleValue());
 	}
 
+	@Test
+	void queryForListWithIndexedParamWithMaxRows() throws Exception {
+		given(resultSet.next()).willReturn(true, true, true, false);
+		given(resultSet.getObject(1)).willReturn(11, 12, 13);
+
+		List<Map<String, Object>> li = client.sql("SELECT AGE FROM CUSTMR WHERE ID < ?")
+				.param(3).query().listOfRows(2);
+
+		assertThat(li.size()).as("First two rows returned").isEqualTo(2);
+		assertThat(li.get(0).get("age")).as("First row is Integer").isEqualTo(11);
+		assertThat(li.get(1).get("age")).as("Second row is Integer").isEqualTo(12);
+
+		verify(connection).prepareStatement("SELECT AGE FROM CUSTMR WHERE ID < ?");
+		verify(preparedStatement).setObject(1, 3);
+		verify(resultSet).close();
+		verify(preparedStatement).close();
+		verify(connection).close();
+	}
+
+	@Test
+	void queryForFirstRowWithIndexedParam() throws Exception {
+		given(resultSet.next()).willReturn(true, true, false);
+		given(resultSet.getObject(1)).willReturn(11, 12);
+
+		Optional<Map<String, Object>> result = client.sql("SELECT AGE FROM CUSTMR WHERE ID < ?")
+				.param(3).query().firstRow();
+
+		assertThat(result).as("First row returned").isNotEmpty();
+		assertThat(result.get().get("age")).as("First row is Integer").isEqualTo(11);
+
+		verify(connection).prepareStatement("SELECT AGE FROM CUSTMR WHERE ID < ?");
+		verify(preparedStatement).setObject(1, 3);
+		verify(preparedStatement).setMaxRows(1);
+		verify(resultSet).close();
+		verify(preparedStatement).close();
+		verify(connection).close();
+	}
+
+	@Test
+	void queryForFirstValueWithIndexedParam() throws Exception {
+		given(resultSet.next()).willReturn(true, true, false);
+		given(resultSet.getObject(1)).willReturn(11, 12);
+
+		Optional<Object> result = client.sql("SELECT AGE FROM CUSTMR WHERE ID < ?")
+				.param(3).query().firstValue();
+
+		assertThat(result).as("First row returned").isNotEmpty();
+		assertThat(result.get()).as("First row is Integer").isEqualTo(11);
+
+		verify(connection).prepareStatement("SELECT AGE FROM CUSTMR WHERE ID < ?");
+		verify(preparedStatement).setObject(1, 3);
+		verify(preparedStatement).setMaxRows(1);
+		verify(resultSet).close();
+		verify(preparedStatement).close();
+		verify(connection).close();
+	}
+
+	@Test
+	void queryForFirstValueWithIndexedParamAndMultipleColumns() throws Exception {
+		given(resultSet.next()).willReturn(true, true, false);
+		given(resultSetMetaData.getColumnCount()).willReturn(2);
+		given(resultSetMetaData.getColumnLabel(2)).willReturn("name", "age");
+		given(resultSet.getObject(1)).willReturn("FOO", "BAR");
+		given(resultSet.getObject(2)).willReturn(11, 12);
+
+		assertThatExceptionOfType(IncorrectResultSetColumnCountException.class).isThrownBy(() ->
+			client.sql("SELECT NAME,AGE FROM CUSTMR WHERE ID < ?")
+					.param(3).query().firstValue()
+		);
+
+		verify(connection).prepareStatement("SELECT NAME,AGE FROM CUSTMR WHERE ID < ?");
+		verify(preparedStatement).setObject(1, 3);
+		verify(preparedStatement).setMaxRows(1);
+		verify(resultSet).close();
+		verify(preparedStatement).close();
+		verify(connection).close();
+	}
+
+	@Test
+	void queryForFirstWithIndexedParamAndRowMapper() throws Exception {
+		given(resultSet.next()).willReturn(true, true, false);
+		given(resultSet.getInt(1)).willReturn(22);
+
+		Optional<Integer> value = client.sql("SELECT AGE FROM CUSTMR WHERE ID < ?")
+				.param(3)
+				.query((rs, rowNum) -> rs.getInt(1))
+				.first();
+
+		assertThat(value.get()).isEqualTo(22);
+
+		verify(connection).prepareStatement("SELECT AGE FROM CUSTMR WHERE ID < ?");
+		verify(preparedStatement).setObject(1, 3);
+		verify(preparedStatement).setMaxRows(1);
+		verify(resultSet).close();
+		verify(preparedStatement).close();
+		verify(connection).close();
+	}
 
 	// Named parameters
 
@@ -623,6 +723,64 @@ class JdbcClientQueryTests {
 		verify(connection).close();
 	}
 
+	@Test
+	void queryForListWithNamedParamWithMaxRows() throws Exception {
+		given(resultSet.next()).willReturn(true, true, true, false);
+		given(resultSet.getObject(1)).willReturn(11, 12, 13);
+
+		List<Map<String, Object>> li = client.sql("SELECT AGE FROM CUSTMR WHERE ID < :id")
+				.param("id", 3)
+				.query().listOfRows(2);
+
+		assertThat(li.size()).as("First two rows returned").isEqualTo(2);
+		assertThat(li.get(0).get("age")).as("First row is Integer").isEqualTo(11);
+		assertThat(li.get(1).get("age")).as("Second row is Integer").isEqualTo(12);
+
+		verify(connection).prepareStatement("SELECT AGE FROM CUSTMR WHERE ID < ?");
+		verify(preparedStatement).setObject(1, 3);
+		verify(resultSet).close();
+		verify(preparedStatement).close();
+		verify(connection).close();
+	}
+
+	@Test
+	void queryForFirstRowWithNamedParam() throws Exception {
+		given(resultSet.next()).willReturn(true, true, false);
+		given(resultSet.getObject(1)).willReturn(11, 12);
+
+		Optional<Map<String, Object>> result = client.sql("SELECT AGE FROM CUSTMR WHERE ID < :id")
+				.param("id", 3).query().firstRow();
+
+		assertThat(result).as("First row returned").isNotEmpty();
+		assertThat(result.get().get("age")).as("First row is Integer").isEqualTo(11);
+
+		verify(connection).prepareStatement("SELECT AGE FROM CUSTMR WHERE ID < ?");
+		verify(preparedStatement).setObject(1, 3);
+		verify(preparedStatement).setMaxRows(1);
+		verify(resultSet).close();
+		verify(preparedStatement).close();
+		verify(connection).close();
+	}
+
+	@Test
+	void queryForFirstWithNamedParamAndRowMapper() throws Exception {
+		given(resultSet.next()).willReturn(true, true, false);
+		given(resultSet.getInt(1)).willReturn(22);
+
+		Optional<Integer> value = client.sql("SELECT AGE FROM CUSTMR WHERE ID < :id")
+				.param("id", 3)
+				.query((rs, rowNum) -> rs.getInt(1))
+				.first();
+
+		assertThat(value.get()).isEqualTo(22);
+
+		verify(connection).prepareStatement("SELECT AGE FROM CUSTMR WHERE ID < ?");
+		verify(preparedStatement).setObject(1, 3);
+		verify(preparedStatement).setMaxRows(1);
+		verify(resultSet).close();
+		verify(preparedStatement).close();
+		verify(connection).close();
+	}
 
 	static class ParameterBean {
 
